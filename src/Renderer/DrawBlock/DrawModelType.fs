@@ -383,6 +383,18 @@ module SheetT =
 
     type Arrange = | AlignSymbols | DistributeSymbols
 
+    type CompilationStage =
+        | Completed of int
+        | InProgress of int
+        | Failed
+        | Queued
+    type CompileStatus = {
+        Synthesis: CompilationStage;
+        PlaceAndRoute: CompilationStage;
+        Generate: CompilationStage;
+        Upload: CompilationStage;
+    }
+
     type Msg =
         | Wire of BusWireT.Msg
         | KeyPress of KeyboardMsg
@@ -423,6 +435,8 @@ module SheetT =
         | IssieInterface of IssieInterfaceMsg
         | MovePort of MouseT //different from mousemsg because ctrl pressed too
         | SaveSymbols
+        | SetCompiling of bool
+        | UpdateCompilationStatus of CompileStatus
 
     type Model = {
         Wire: BusWireT.Model
@@ -467,6 +481,8 @@ module SheetT =
         IsWaveSim : bool
         ScrollUpdateIsOutstanding: bool
         PrevWireSelection : ConnectionId list
+        Compiling: bool
+        CompilationStatus: CompileStatus
         }
     
     open Operators

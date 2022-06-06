@@ -17,6 +17,7 @@ type RightTab =
     | Properties
     | Catalogue
     | Simulation
+    | Build
     | WaveSim
 
 type MemoryEditorData = {

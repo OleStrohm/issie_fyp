@@ -132,6 +132,12 @@ let private viewRightTab model dispatch =
     | WaveSim -> 
         div [ Style [Width "100%"; Height "calc(100% - 48px)"; MarginTop "15px" ] ]
             ( WaveformSimulationView.viewWaveSim model dispatch )
+    | Build ->
+        div [ Style [Width "90%"; MarginLeft "5%"; MarginTop "15px" ] ] [
+            Heading.h4 [] [ str "Build" ]
+            div [ Style [ MarginBottom "15px" ] ] [ str "Click on a component to add it to the diagram. Hover on components for details." ]
+            BuildView.viewBuild model dispatch
+        ]
 
 /// determine whether moving the mouse drags the bar or not
 let inline setDragMode (modeIsOn:bool) (model:Model) dispatch =
@@ -303,6 +309,14 @@ let displayView model dispatch =
                                                 then
                                                     dispatch <| ChangeRightTab Simulation ) 
                                             ] [str "Simulation"] ] )
+
+                                    (Tabs.tab // simulation tab to do combinational simulation
+                                        [ Tabs.Tab.IsActive (model.RightPaneTabVisible = Build) ]
+                                        [ a [  OnClick (fun _ -> 
+                                                if model.RightPaneTabVisible <> WaveSim 
+                                                then
+                                                    dispatch <| ChangeRightTab Build ) 
+                                            ] [str "Build"] ] )
                             
                                     // Optional wavesim tab. If present contains waveforms or waveform editor window
                                     (match currWaveSimModel model with
