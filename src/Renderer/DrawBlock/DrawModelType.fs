@@ -446,7 +446,7 @@ module SheetT =
         | StartCompiling
         | StartCompilationStage of CompilationStageLabel
         | StopCompilation
-        | TickCompilation
+        | TickCompilation of float
         | FinishedCompilationStage
 
     type Model = {
