@@ -21,8 +21,8 @@ let getHeaderHeight =
     
 let rightSectionWidth (model:Model) =
     match model.RightPaneTabVisible with
-    | RightTab.Properties | RightTab.Catalogue | RightTab.Build -> rightSectionWidthS
-    | RightTab.Simulation ->  rightSectionWidthL
+    | RightTab.Properties | RightTab.Catalogue -> rightSectionWidthS
+    | RightTab.Simulation | RightTab.Build ->  rightSectionWidthL
     | RightTab.WaveSim -> sprintf "%dpx" model.WaveSimViewerWidth
 
 let leftSectionWidth model = Style [

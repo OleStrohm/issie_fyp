@@ -452,6 +452,7 @@ module SheetT =
         | DebugRead of parts: int
         | OnDebugRead of data: int
         | DebugConnect
+        | DebugUpdateMapping of string array
 
     type ReadLog = | ReadLog of int
 
@@ -501,7 +502,8 @@ module SheetT =
         Compiling: bool
         CompilationStatus: CompileStatus
         CompilationProcess: ChildProcess option
-        DebugData: int
+        DebugData: int list
+        DebugMappings: string array
         DebugConnection: ChildProcess option
         ReadLogs: ReadLog list
         }

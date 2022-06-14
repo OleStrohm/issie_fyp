@@ -29,13 +29,18 @@ let private menuItem styles label onClick =
 
 
 let private makeRowForCompilationStage (name: string) (stage: SheetT.CompilationStage) =
+    let minutesSeconds t =
+        let minutes = t / 60
+        let seconds = t % 60
+        let zeroPadding = if seconds < 10 then "0" else ""
+        $"{minutes}:{zeroPadding}{seconds}"
     tr [] [
         th [] [str name]
         match stage with
         | SheetT.Completed t ->
-                th [ Style [ BackgroundColor "green"] ] [str $"{t} seconds"]
+                th [ Style [ BackgroundColor "green"] ] [str (minutesSeconds t)]
         | SheetT.InProgress t ->
-                th [ Style [ BackgroundColor "yellow"] ] [str $"{t} seconds"]
+                th [ Style [ BackgroundColor "yellow"] ] [str (minutesSeconds t)]
         | SheetT.Failed ->
                 th [ Style [ BackgroundColor "red"] ] [str "XX"]
         | SheetT.Queued ->
@@ -58,6 +63,14 @@ let verilogOutput (vType: Verilog.VMode) (model: Model) (dispatch: Msg -> Unit) 
                     | _ -> 
                         try
                             let verilog = Verilog.getVerilog vType sim.FastSim
+                            let mappings =
+                                sim.FastSim.FOrderedComps
+                                |> Array.filter (fun fc -> match fc.FType with | Viewer _ -> true | _ -> false)
+                                |> Array.map (fun fc -> fc.FullName, fc.OutputWidth[0])
+                                |> Array.collect (function 
+                                    | (_, None) -> [||]
+                                    | (name, Some width) -> [0 .. width - 1] |> List.toArray |> Array.map (fun i -> $"{name}"))
+                            dispatch (Sheet (SheetT.Msg.DebugUpdateMapping mappings))
                             printfn "%s" verilog
                             FilesIO.writeFile path verilog
                         with
@@ -144,12 +157,38 @@ let viewBuild model dispatch =
                         ]
                         [ str "Connect" ]
                     br [];
-                    div [] [
-                        str ([0..7]
-                             |> List.rev
-                             |> List.map (fun i -> (model.Sheet.DebugData / (pown 2 i)) % 2)
-                             |> List.map (fun b -> b.ToString())
-                             |> String.concat "")
+                    br [];
+                    Table.table [
+                        Table.IsFullWidth
+                        Table.IsBordered
+                    ] [
+                        thead [] [ tr [] [
+                            th [ Style [ BackgroundColor "lightgray"] ] [str "Viewer"]
+                            th [ Style [ BackgroundColor "lightgray"] ] [str "Value"]
+                        ] ]
+                        tbody [] (
+                            let mappings = Array.toList model.Sheet.DebugMappings
+                            //let mappings = [ "debug_stuff"; "debug_stuff"; "v2"; "v2"; "v2"; "v1"  ]
+                            let bits =
+                                model.Sheet.DebugData
+                                |> List.collect (fun byte -> 
+                                    [0..7]
+                                    |> List.map (fun i -> (byte / (pown 2 i)) % 2))
+
+                            let values =
+                                List.zip mappings bits
+                                |> List.fold (fun s (name, bit) ->
+                                    match List.tryHead s with
+                                    | Some (n, bits) when n = name-> (n, bit :: bits) :: (List.tail s)
+                                    | _ -> (name, [bit]) :: s
+                                    ) []
+
+                            values
+                            |> List.map (fun (name, bits) ->
+                                tr [] [
+                                    th [] [str (name + if List.length bits = 1 then "" else $"[{List.length bits - 1}:0]")]
+                                    th [] [ str <| "0b" + (bits |> List.map (fun b -> b.ToString()) |> String.concat "") ]
+                                ]))
                     ]
                 ]
 

@@ -652,6 +652,8 @@ let getDebugController (profile: CompilationProfile) (fs: FastSimulation) =
             | (_, None) -> [||]
             | (name, Some width) -> [0 .. width - 1] |> List.toArray |> Array.map (fun i -> $"{name}[{i}]"))
         //|> Array.map (fun (name, index) -> $"{name}[{index}]")
+    let comps =
+        comps
         |> Array.chunkBySize 8
         |> Array.map padWithZeros
         |> Array.mapi (fun i s -> $"    8'h3{i}: tx_byte <= {{ {s} }};")
@@ -659,7 +661,6 @@ let getDebugController (profile: CompilationProfile) (fs: FastSimulation) =
         Array.append comps [|"    default: tx_byte <= 8'hFF;"|]
         |> String.concat "\n"
 
-    // TODO: Add RS232_Rx_TTL and RS232_Tx_TTL to the IO header
     match profile with
     | Release -> [||]
     | Debug ->

@@ -1202,9 +1202,11 @@ let update (msg : Msg) (model : Model): Model*Cmd<Msg> =
         let (ReadLog part) = List.head model.ReadLogs
         printfn $"read {data} from {part}"
         { model with
-            DebugData = data
+            DebugData = List.insertAt part data (List.removeAt part model.DebugData)
             ReadLogs = List.tail model.ReadLogs
         }, Cmd.none
+    | DebugUpdateMapping mappings ->
+        {model with DebugMappings = mappings }, Cmd.none
     | ToggleNet _ | DoNothing | _ -> model, Cmd.none
     |> Optic.map fst_ postUpdateChecks
 
@@ -1253,8 +1255,9 @@ let init () =
         Compiling = false
         CompilationStatus = {Synthesis = Completed 65; PlaceAndRoute = InProgress 87; Generate = Failed; Upload = Queued}
         CompilationProcess = None
-        DebugData = 11
+        DebugData = [1..256] |> List.map (fun i -> 0b00111011)
         DebugConnection = None
+        DebugMappings = [||]
         ReadLogs = []
     }, Cmd.none
 
