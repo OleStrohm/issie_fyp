@@ -42,44 +42,7 @@ let private makeRowForCompilationStage (name: string) (stage: SheetT.Compilation
                 th [ Style [ BackgroundColor "gray"] ] [str "--"]
     ]
 
-type WaitForFinish =
-    | Woken
-    | Finished
-
-[<AutoOpen>]
-module AsyncEx = 
-    type private SuccessException<'T>(value : 'T) =
-        inherit Exception()
-        member self.Value = value
-
-    type Microsoft.FSharp.Control.Async with
-        // efficient raise
-        static member Raise (e : #exn) = Async.FromContinuations(fun (_,econt,_) -> econt e)
-  
-        static member CoolChoice<'T>(tasks : seq<Async<'T option>>) : Async<'T option> =
-            let wrap task =
-                async {
-                    let! res = task
-                    match res with
-                    | None -> return None
-                    | Some r -> return! Async.Raise <| SuccessException r
-                }
-
-            async {
-                try
-                    do!
-                        tasks
-                        |> Seq.map wrap
-                        |> Async.Parallel
-                        |> Async.Ignore
-
-                    return None
-                with 
-                | :? SuccessException<'T> as ex -> return Some ex.Value
-            }
-
 let verilogOutput (vType: Verilog.VMode) (model: Model) (dispatch: Msg -> Unit) =
-    printfn "Verilog output"
     match FileMenuView.updateProjectFromCanvas model dispatch, model.Sheet.GetCanvasState() with
         | Some proj, state ->
             match model.UIState with
@@ -88,24 +51,23 @@ let verilogOutput (vType: Verilog.VMode) (model: Model) (dispatch: Msg -> Unit) 
                 match Simulator.prepareSimulation proj.OpenFileName state proj.LoadedComponents with
                 | Ok sim -> 
                     let path = FilesIO.pathJoin [| proj.ProjectPath; proj.OpenFileName + ".v" |]
-                    printfn "writing %s" proj.ProjectPath
                     printfn "should be compiling %s :: %s" proj.ProjectPath proj.OpenFileName
                     match tryCreateFolder <| pathJoin [| proj.ProjectPath; "/build" |] with
-                    | Error e -> printfn "Couldn't make build folder: %s" e
-                    | Ok _ -> ()
-                    try
-                        let verilog = Verilog.getVerilog vType sim.FastSim
-                        printfn "%s" verilog
-                        FilesIO.writeFile path verilog
-                    with
-                    | e ->
-                        printfn $"Error in Verilog output: {e.Message}"
-                        Error e.Message
-                    |> (function
-                        | Ok () -> Sheet (SheetT.Msg.StartCompiling (proj.ProjectPath, proj.OpenFileName)) |> dispatch
-                        | Error e -> ()//oh no
-                        )
-                    //dispatch <| ChangeRightTab Simulation
+                    // TODO: No way to check for existence
+                    //| Error e -> printfn "Couldn't make build folder: %s" e
+                    | _ -> 
+                        try
+                            let verilog = Verilog.getVerilog vType sim.FastSim
+                            printfn "%s" verilog
+                            FilesIO.writeFile path verilog
+                        with
+                        | e ->
+                            printfn $"Error in Verilog output: {e.Message}"
+                            Error e.Message
+                        |> (function
+                            | Ok () -> ()//Sheet (SheetT.Msg.StartCompiling (proj.ProjectPath, proj.OpenFileName)) |> dispatch
+                            | Error e -> ()//oh no
+                            )
                 | Error simError ->
                    printfn $"Error in simulation prevents verilog output {simError.Msg}"
         | _ -> ()
@@ -163,6 +125,32 @@ let viewBuild model dispatch =
                         ]
                     ]
 
+                    Button.button
+                        [ 
+                            Button.Color IsSuccess;
+                            Button.OnClick (fun _ -> Sheet (SheetT.Msg.DebugSingleStep) |> dispatch);
+                        ]
+                        [ str "Step" ]
+                    Button.button
+                        [ 
+                            Button.Color IsSuccess;
+                            Button.OnClick (fun _ -> Sheet (SheetT.Msg.DebugRead 1) |> dispatch);
+                        ]
+                        [ str "Read" ]
+                    Button.button
+                        [ 
+                            Button.Color IsSuccess;
+                            Button.OnClick (fun _ -> Sheet (SheetT.Msg.DebugConnect) |> dispatch);
+                        ]
+                        [ str "Connect" ]
+                    br [];
+                    div [] [
+                        str ([0..7]
+                             |> List.rev
+                             |> List.map (fun i -> (model.Sheet.DebugData / (pown 2 i)) % 2)
+                             |> List.map (fun b -> b.ToString())
+                             |> String.concat "")
+                    ]
                 ]
 
         (viewCatOfModel) model 

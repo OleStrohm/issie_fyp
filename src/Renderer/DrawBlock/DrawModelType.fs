@@ -448,6 +448,12 @@ module SheetT =
         | StopCompilation
         | TickCompilation of float
         | FinishedCompilationStage
+        | DebugSingleStep
+        | DebugRead of parts: int
+        | OnDebugRead of data: int
+        | DebugConnect
+
+    type ReadLog = | ReadLog of int
 
     type Model = {
         Wire: BusWireT.Model
@@ -495,6 +501,9 @@ module SheetT =
         Compiling: bool
         CompilationStatus: CompileStatus
         CompilationProcess: ChildProcess option
+        DebugData: int
+        DebugConnection: ChildProcess option
+        ReadLogs: ReadLog list
         }
     
     open Operators

@@ -14,6 +14,7 @@ open FilesIO
 
 open Fable.Core.JsInterop
 open Node.ChildProcess
+open Node
 
 module node = Node.Api
 
@@ -1160,6 +1161,50 @@ let update (msg : Msg) (model : Model): Model*Cmd<Msg> =
                 }
 
         model, Cmd.none
+    | DebugSingleStep ->
+        let step dispatch =
+            fs.writeFileSync ("/dev/ttyUSB1", "S")
+            printfn "stepped"
+            ()
+
+        model, Cmd.ofSub step
+    | DebugRead part ->
+        printfn "Reading stuff!" 
+        let readData dispatch =
+            fs.writeFileSync ("/dev/ttyUSB1", $"R{part}")
+            printfn $"reading from {part}" 
+            ()
+
+        { model with
+            ReadLogs = List.append model.ReadLogs [ReadLog part]
+        }, Cmd.ofSub readData
+    | DebugConnect ->
+        match model.DebugConnection with
+        | Some c -> c.kill()
+        | _ -> ()
+        
+        let options = {| shell = false |} |> toPlainJsObj
+        let conn = node.childProcess.spawn ("socat", ["stdio"; "/dev/ttyUSB1"] |> ResizeArray, options);
+        printfn "Spawned with pid %A" conn.pid
+        let spawnListener dispatch =
+            conn.stdout.on ("data", fun (data:byte[]) ->
+                printfn "Got (string): %A" (Array.length data)
+                let b = int <| Array.get data 0
+                printfn "Got integer: %d" b
+                OnDebugRead b |> dispatch; ()
+                ) |> ignore
+            ()
+
+        { model with
+            DebugConnection = Some conn
+        }, Cmd.ofSub spawnListener
+    | OnDebugRead data ->
+        let (ReadLog part) = List.head model.ReadLogs
+        printfn $"read {data} from {part}"
+        { model with
+            DebugData = data
+            ReadLogs = List.tail model.ReadLogs
+        }, Cmd.none
     | ToggleNet _ | DoNothing | _ -> model, Cmd.none
     |> Optic.map fst_ postUpdateChecks
 
@@ -1208,6 +1253,9 @@ let init () =
         Compiling = false
         CompilationStatus = {Synthesis = Completed 65; PlaceAndRoute = InProgress 87; Generate = Failed; Upload = Queued}
         CompilationProcess = None
+        DebugData = 11
+        DebugConnection = None
+        ReadLogs = []
     }, Cmd.none
 
 
