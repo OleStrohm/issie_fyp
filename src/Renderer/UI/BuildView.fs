@@ -66,7 +66,7 @@ let verilogOutput (vType: Verilog.VMode) (model: Model) (dispatch: Msg -> Unit) 
                             let mappings =
                                 sim.FastSim.FOrderedComps
                                 |> Array.filter (fun fc -> match fc.FType with | Viewer _ -> true | _ -> false)
-                                |> Array.map (fun fc -> fc.FullName, fc.OutputWidth[0])
+                                |> Array.map (fun fc -> fc.FullName, Array.get fc.OutputWidth 0)
                                 |> Array.collect (function 
                                     | (_, None) -> [||]
                                     | (name, Some width) -> [0 .. width - 1] |> List.toArray |> Array.map (fun i -> $"{name}"))
