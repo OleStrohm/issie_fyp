@@ -1103,7 +1103,7 @@ let update (msg : Msg) (model : Model): Model*Cmd<Msg> =
             | InProgress t -> Failed
             | s -> s
 
-        {model with
+        { model with
             Compiling = false
             CompilationStatus = {
                 Synthesis = failIfInProgress model.CompilationStatus.Synthesis
@@ -1112,7 +1112,7 @@ let update (msg : Msg) (model : Model): Model*Cmd<Msg> =
                 Upload = failIfInProgress model.CompilationStatus.Upload
             }
             CompilationProcess = None
-        }, Cmd.none
+        }, Cmd.ofMsg DebugDisconnect
     | TickCompilation pid ->
         //printfn "ticking %A while process is %A" pid (model.CompilationProcess |> Option.map (fun c -> c.pid))
         let correctPid =
@@ -1179,6 +1179,8 @@ let update (msg : Msg) (model : Model): Model*Cmd<Msg> =
     | DebugRead part ->
         fs.writeFileSync ("/dev/ttyUSB1", $"R{part}")
         printfn $"reading from {part}" 
+        printfn $"There were this many logs to receive: {List.length model.ReadLogs}"
+        printfn $"Now there are this many logs to receive: {List.length (List.append model.ReadLogs [ReadLog part])}"
 
         { model with
             ReadLogs = List.append model.ReadLogs [ReadLog part]
@@ -1188,7 +1190,7 @@ let update (msg : Msg) (model : Model): Model*Cmd<Msg> =
         | Some c -> c.kill()
         | _ -> ()
         
-        // Set up the 
+        // Set up the tty
         node.childProcess.spawnSync (
             "sudo",
             ["stty"; "-F"; "/dev/ttyUSB1"; "9600"; "-hupcl"; "brkint"; "ignpar"; "-icrnl";
@@ -1223,6 +1225,7 @@ let update (msg : Msg) (model : Model): Model*Cmd<Msg> =
             |> List.map (fun b -> b.ToString())
             |> String.concat ","
         printfn $"read {data} from {part} ([{bits}])"
+        printfn $"There are this many logs to receive: {List.length (List.tail model.ReadLogs)}"
         { model with
             DebugData = List.insertAt part data (List.removeAt part model.DebugData)
             ReadLogs = List.tail model.ReadLogs
