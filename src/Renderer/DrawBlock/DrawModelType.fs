@@ -455,6 +455,8 @@ module SheetT =
         | DebugConnect
         | DebugDisconnect
         | DebugUpdateMapping of string array
+        | DebugContinue
+        | DebugPause
 
     type ReadLog = | ReadLog of int
 
@@ -508,6 +510,7 @@ module SheetT =
         DebugMappings: string array
         DebugConnection: ChildProcess option
         ReadLogs: ReadLog list
+        DebugReadCount: int
         }
     
     open Operators
