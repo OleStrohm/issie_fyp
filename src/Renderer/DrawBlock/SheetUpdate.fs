@@ -1026,7 +1026,7 @@ let update (msg : Msg) (model : Model): Model*Cmd<Msg> =
         if isOn then {model with CursorType = Spinner}, Cmd.none
         else {model with CursorType = Default}, Cmd.none
 
-    | StartCompiling (path, name) ->
+    | StartCompiling (path, name, profile) ->
         printfn "starting compiling %s :: %s" path name
         {model with
             Compiling = true
@@ -1036,15 +1036,20 @@ let update (msg : Msg) (model : Model): Model*Cmd<Msg> =
                 Generate = Queued
                 Upload = Queued
             }
-        }, Cmd.ofMsg (StartCompilationStage (Synthesis, path, name))
-    | StartCompilationStage (stage, path, name) ->
+            DebugReadLogs = []
+            DebugState = match profile with | Verilog.Debug -> Paused | Verilog.Release -> NotDebugging
+        }, Cmd.ofMsg (StartCompilationStage (Synthesis, path, name, profile))
+    | StartCompilationStage (stage, path, name, profile) ->
         printfn "are we compiling? %A" model.Compiling
         printfn "do we have process? %A" (model.CompilationProcess |> Option.map (fun c -> c.pid))
         if not model.Compiling then
             model, Cmd.none
         else 
+            // TODO: Make this the issie install path
             let include_path = "/home/ole/workspace/fyp/hdl"
-            let pcf = $"{include_path}/icestick.pcf"
+            let pcf = match profile with
+                      | Verilog.Release -> $"{include_path}/icestick.pcf"
+                      | Verilog.Debug -> $"{include_path}/icestick_debug.pcf"
             let (prog, args) = 
                 // make build dir
                 match stage with
@@ -1082,11 +1087,11 @@ let update (msg : Msg) (model : Model): Model*Cmd<Msg> =
                     if exit_code.Value = 0 then
                         dispatch <| FinishedCompilationStage
                         match stage with
-                        | Synthesis -> dispatch <| StartCompilationStage (PlaceAndRoute, path, name)
-                        | PlaceAndRoute -> dispatch <| StartCompilationStage (Generate, path, name)
-                        | Generate -> dispatch <| StartCompilationStage (Upload, path, name)
-                        | Upload -> ()
-                    // TODO: Handle errors properly
+                        | Synthesis -> dispatch <| StartCompilationStage (PlaceAndRoute, path, name, profile)
+                        | PlaceAndRoute -> dispatch <| StartCompilationStage (Generate, path, name, profile)
+                        | Generate -> dispatch <| StartCompilationStage (Upload, path, name, profile)
+                        | Upload when profile = Verilog.Debug-> dispatch <| DebugConnect
+                        | _ -> ()
                     else
                         dispatch <| StopCompilation
                 })
@@ -1112,7 +1117,7 @@ let update (msg : Msg) (model : Model): Model*Cmd<Msg> =
                 Upload = failIfInProgress model.CompilationStatus.Upload
             }
             CompilationProcess = None
-        }, Cmd.ofMsg DebugDisconnect
+        }, Cmd.none
     | TickCompilation pid ->
         //printfn "ticking %A while process is %A" pid (model.CompilationProcess |> Option.map (fun c -> c.pid))
         let correctPid =
@@ -1164,62 +1169,69 @@ let update (msg : Msg) (model : Model): Model*Cmd<Msg> =
 
         model, Cmd.none
     | DebugSingleStep ->
-        let step dispatch =
-            fs.writeFileSync ("/dev/ttyUSB1", "S")
-            printfn "stepped"
-            ()
+        fs.writeFileSync ("/dev/ttyUSB1", "S")
+        printfn "stepped"
 
-        model, Cmd.batch [
-            Cmd.ofSub step
-            Cmd.ofMsg (DebugRead 0)
-            Cmd.ofMsg (DebugRead 1)
-            Cmd.ofMsg (DebugRead 2)
-            Cmd.ofMsg (DebugRead 3)
-        ]
+        let readAllViewersCmd = 
+            [0..(Array.length model.DebugMappings) / 8]
+            |> List.map (fun i -> Cmd.ofMsg (DebugRead i))
+            |> Cmd.batch
+        model, readAllViewersCmd
     | DebugRead part ->
         fs.writeFileSync ("/dev/ttyUSB1", $"R{part}")
         printfn $"reading from {part}" 
-        printfn $"There were this many logs to receive: {List.length model.ReadLogs}"
-        printfn $"Now there are this many logs to receive: {List.length (List.append model.ReadLogs [ReadLog part])}"
+        printfn $"There were this many logs to receive: {List.length model.DebugReadLogs}"
+        printfn $"Now there are this many logs to receive: {List.length (List.append model.DebugReadLogs [ReadLog part])}"
 
         { model with
-            ReadLogs = List.append model.ReadLogs [ReadLog part]
+            DebugReadLogs = List.append model.DebugReadLogs [ReadLog part]
         }, Cmd.none
     | DebugConnect ->
         match model.DebugConnection with
-        | Some c -> c.kill()
-        | _ -> ()
-        
-        // Set up the tty
-        node.childProcess.spawnSync (
-            "stty",
-            ["-F"; "/dev/ttyUSB1"; "9600"; "-hupcl"; "brkint"; "ignpar"; "-icrnl";
-             "-opost"; "-onlcr"; "-isig"; "-icanon"; "-echo"] |> ResizeArray) |> ignore
-        let options = {| shell = false |} |> toPlainJsObj
-        let conn = node.childProcess.spawn ("socat", ["stdio"; "/dev/ttyUSB1"] |> ResizeArray, options);
-        printfn "Spawned with pid %A" conn.pid
-        let spawnListener dispatch =
-            conn.stdout.on ("data", fun (data:byte[]) ->
-                printfn "Got this many things: %A" (Array.length data)
-                Array.map (fun b ->
-                    printfn "Got integer: %d" (int b)
-                    dispatch <| OnDebugRead (int b)) data
-                |> ignore
+        | Some c -> model, Cmd.none//c.push None |> ignore; c.destroy()
+        | _ -> 
+            // Set up the tty
+            node.childProcess.spawnSync (
+                "stty",
+                ["-F"; "/dev/ttyUSB1"; "9600"; "-hupcl"; "brkint"; "ignpar"; "-icrnl";
+                 "-opost"; "-onlcr"; "-isig"; "-icanon"; "-echo"] |> ResizeArray) |> ignore
+            //let options = {| shell = false |} |> toPlainJsObj
+            //let conn = node.childProcess.spawn ("socat", ["stdio"; "/dev/ttyUSB1"] |> ResizeArray, options);
+            let stream: Node.Fs.ReadStream<string> = fs.createReadStream("/dev/ttyUSB1")
+            printfn "Connected to read stream"
+            let spawnListener dispatch =
+                stream.on("data", fun (data: byte[]) ->
+                    //printfn "Read (from stream): %A" data
+                    printfn "Got this many things: %A" (Array.length data)
+                    Array.map (fun b ->
+                        printfn "Got integer: %d" (int b)
+                        dispatch <| OnDebugRead (int b)) data
+                    |> ignore
                 ) |> ignore
-            ()
+                stream.on("close", fun _ -> printfn "it was closed") |> ignore
+                //conn.stdout.on ("data", fun (data:byte[]) ->
+                //    printfn "Got this many things: %A" (Array.length data)
+                //    Array.map (fun b ->
+                //        printfn "Got integer: %d" (int b)
+                //        dispatch <| OnDebugRead (int b)) data
+                //    |> ignore
+                //    ) |> ignore
+                ()
 
-        { model with
-            DebugConnection = Some conn
-        }, Cmd.ofSub spawnListener
+            { model with
+                DebugConnection = Some stream
+                DebugReadLogs = []
+            }, Cmd.ofSub spawnListener
     | DebugDisconnect ->
+        printfn "Closed read stream"
         match model.DebugConnection with
-        | Some c -> c.kill()
+        | Some c -> c.push None |> ignore; c.destroy()
         | _ -> ()
         { model with DebugConnection = None }, Cmd.none
     | OnDebugRead data ->
         printfn $"Have read {model.DebugReadCount + 1} messages"
-        printfn $"There are this many logs to receive: {List.length model.ReadLogs}"
-        let (ReadLog part) = List.head model.ReadLogs
+        printfn $"There are this many logs to receive: {List.length model.DebugReadLogs}"
+        let (ReadLog part) = List.head model.DebugReadLogs
         let bits =
             [0..7]
             |> List.rev
@@ -1230,18 +1242,22 @@ let update (msg : Msg) (model : Model): Model*Cmd<Msg> =
         { model with
             DebugReadCount = model.DebugReadCount + 1
             DebugData = List.insertAt part data (List.removeAt part model.DebugData)
-            ReadLogs = List.tail model.ReadLogs
+            DebugReadLogs = List.tail model.DebugReadLogs
         }, Cmd.none
     | DebugUpdateMapping mappings ->
         {model with DebugMappings = mappings }, Cmd.none
     | DebugContinue ->
         fs.writeFileSync ("/dev/ttyUSB1", "C")
         printfn "Continued execution"
-        model, Cmd.none
+        {model with DebugState = Running}, Cmd.none
     | DebugPause ->
         fs.writeFileSync ("/dev/ttyUSB1", "P")
         printfn "Continued execution"
-        model, Cmd.none
+        let readAllViewersCmd = 
+            [0..(Array.length model.DebugMappings) / 8]
+            |> List.map (fun i -> Cmd.ofMsg (DebugRead i))
+            |> Cmd.batch
+        {model with DebugState = Paused}, readAllViewersCmd
     | ToggleNet _ | DoNothing | _ -> model, Cmd.none
     |> Optic.map fst_ postUpdateChecks
 
@@ -1290,10 +1306,11 @@ let init () =
         Compiling = false
         CompilationStatus = {Synthesis = Completed 65; PlaceAndRoute = InProgress 87; Generate = Failed; Upload = Queued}
         CompilationProcess = None
+        DebugState = NotDebugging
         DebugData = [1..256] |> List.map (fun i -> 0b00111011)
         DebugConnection = None
         DebugMappings = [||]
-        ReadLogs = []
+        DebugReadLogs = []
         DebugReadCount = 0
     }, Cmd.none
 
